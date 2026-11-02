@@ -1,0 +1,163 @@
+import FreeCAD as App
+import Part
+from FreeCAD import Vector
+
+# MEDIDAS EN MILÍMETROS
+DIAMETRO_INTERIOR = 78
+ALTURA = 100
+PARED = 4
+BASE = 4
+GROSOR_BORDE = 2
+ALTURA_BORDE = 5
+
+# Agujeros de drenaje
+DIAMETRO_ORIFICIOS = 6
+DISTANCIA_CENTRO = 20
+
+# Ganchos para alambre de 3–4 mm
+ANCHO_GANCHO = 10
+SEPARACION_GANCHOS = 28
+ESPESOR_GANCHO = 6
+PASO_ALAMBRE = 6
+CAIDA_TRASERA = 16
+ALTURA_UNION = 24
+
+RADIO_INTERIOR_GANCHO = PASO_ALAMBRE / 2
+RADIO_EXTERIOR_GANCHO = RADIO_INTERIOR_GANCHO + ESPESOR_GANCHO
+radio_interior = DIAMETRO_INTERIOR / 2
+radio_exterior = radio_interior + PARED
+
+doc = App.newDocument("SoporteBidonSinGrabado")
+
+
+def caja(x, y, z, ancho, fondo, alto):
+    return Part.makeBox(ancho, fondo, alto, Vector(x, y, z))
+
+
+# CILINDRO HUECO CON BASE
+exterior = Part.makeCylinder(radio_exterior, ALTURA)
+
+# El vaciado sobrepasa la parte superior.
+interior = Part.makeCylinder(
+    radio_interior, ALTURA + 20, Vector(0, 0, BASE)
+)
+pieza = exterior.cut(interior)
+
+# Borde superior más fino.
+rebaje = Part.makeCylinder(
+    radio_exterior - GROSOR_BORDE,
+    ALTURA_BORDE + 20,
+    Vector(0, 0, ALTURA - ALTURA_BORDE)
+)
+pieza = pieza.cut(rebaje)
+
+# CINCO AGUJEROS EN LA BASE
+posiciones = [
+    (0, 0),
+    (DISTANCIA_CENTRO, 0),
+    (-DISTANCIA_CENTRO, 0),
+    (0, DISTANCIA_CENTRO),
+    (0, -DISTANCIA_CENTRO)
+]
+
+for x, y in posiciones:
+    orificio = Part.makeCylinder(
+        DIAMETRO_ORIFICIOS / 2, BASE + 2, Vector(x, y, -1)
+    )
+    pieza = pieza.cut(orificio)
+
+pieza = pieza.removeSplitter()
+
+# DOS GANCHOS SUPERIORES CON CURVA CIRCULAR
+# Parte trasera: dirección Y negativa.
+y_union = -radio_exterior - 4
+y_centro = y_union - RADIO_INTERIOR_GANCHO
+z_centro = ALTURA + 4
+
+for centro_x in [-SEPARACION_GANCHOS / 2, SEPARACION_GANCHOS / 2]:
+    x = centro_x - ANCHO_GANCHO / 2
+
+    # Aro circular con eje paralelo a X.
+    aro_exterior = Part.makeCylinder(
+        RADIO_EXTERIOR_GANCHO,
+        ANCHO_GANCHO,
+        Vector(x, y_centro, z_centro),
+        Vector(1, 0, 0)
+    )
+    aro_interior = Part.makeCylinder(
+        RADIO_INTERIOR_GANCHO,
+        ANCHO_GANCHO + 2,
+        Vector(x - 1, y_centro, z_centro),
+        Vector(1, 0, 0)
+    )
+    aro = aro_exterior.cut(aro_interior)
+
+    # Conservar la semicircunferencia superior.
+    limite_superior = caja(
+        x - 1,
+        y_centro - RADIO_EXTERIOR_GANCHO - 1,
+        z_centro,
+        ANCHO_GANCHO + 2,
+        2 * RADIO_EXTERIOR_GANCHO + 2,
+        RADIO_EXTERIOR_GANCHO + 1
+    )
+    curva = aro.common(limite_superior)
+
+    # Unión prolongada hasta la pared curva, sin huecos laterales.
+    y_final_union = -radio_interior + 3
+    brazo_delantero = caja(
+        x,
+        y_union,
+        ALTURA - ALTURA_UNION,
+        ANCHO_GANCHO,
+        y_final_union - y_union,
+        z_centro - (ALTURA - ALTURA_UNION)
+    )
+
+    # Mantener libre el espacio del bidón y el borde fino.
+    brazo_delantero = brazo_delantero.cut(interior)
+    brazo_delantero = brazo_delantero.cut(rebaje)
+
+    # Brazo trasero: abertura hacia abajo.
+    brazo_trasero = caja(
+        x,
+        y_centro - RADIO_EXTERIOR_GANCHO,
+        z_centro - CAIDA_TRASERA,
+        ANCHO_GANCHO,
+        ESPESOR_GANCHO,
+        CAIDA_TRASERA
+    )
+    gancho = curva.fuse(brazo_delantero)
+    gancho = gancho.fuse(brazo_trasero)
+    pieza = pieza.fuse(gancho)
+
+pieza = pieza.removeSplitter()
+
+# COMPROBACIÓN GEOMÉTRICA
+if pieza.isNull() or not pieza.isValid():
+    raise RuntimeError("La geometría no es válida. Revisa las medidas.")
+
+if len(pieza.Solids) != 1:
+    raise RuntimeError("El modelo no forma una única pieza.")
+
+# VISUALIZACIÓN SIN LÍNEAS DE ARISTAS
+obj = doc.addObject("PartDesign::Feature", "Soporte")
+obj.Label = "Soporte con ganchos unidos y cinco drenajes"
+obj.Shape = pieza
+obj.ViewObject.ShapeColor = (0.25, 0.65, 0.85)
+obj.ViewObject.DisplayMode = "Shaded"
+obj.ViewObject.Deviation = 0.1
+obj.ViewObject.AngularDeflection = 10.0
+
+doc.recompute()
+
+Gui.Selection.clearSelection()
+Gui.activeDocument().activeView().viewAxonometric()
+Gui.activeDocument().activeView().fitAll()
+
+App.Console.PrintMessage(
+    "Soporte creado sin grabados.\n"
+    "Ganchos unidos a la pared curva y cinco drenajes.\n"
+    "Guarda la macro como soporte_bidon_padel.FCMacro.\n"
+    "Para imprimir: selecciona el soporte y exporta como STL.\n"
+)

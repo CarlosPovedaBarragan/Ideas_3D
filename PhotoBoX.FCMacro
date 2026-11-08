@@ -1,0 +1,204 @@
+import os
+import FreeCAD as App
+import Part
+import Draft
+from FreeCAD import Vector
+
+# Todas las medidas están en milímetros.
+ANCHO_INTERIOR = 200
+FONDO_INTERIOR = 200
+ALTO_PANELES = 200
+ESPESOR_PANEL = 3
+ESPESOR_BASE = 5
+HOLGURA_RANURA = 0.6
+PROFUNDIDAD_RANURA = 3
+PARED_CAJA = 3
+SUELO_CAJA = 3
+ALTO_CAJA = 32
+HOLGURA_ALMACENAJE = 4
+HOLGURA_TAPA = 0.6
+ESPESOR_TAPA = 3
+FALDA_TAPA = 7
+TEXTO_TAPA = 'PhotoBoX'
+ANCHO_TEXTO = 145
+PROFUNDIDAD_GRABADO = 0.8
+# Ruta de una fuente .ttf si no se encuentra automáticamente.
+FUENTE_PERSONALIZADA = ''
+ANCHO_SOPORTE = 85
+FONDO_SOPORTE = 35
+ALTO_SOPORTE = 8
+ANCHO_RANURA_TOPLOADER = 78
+GROSOR_RANURA_TOPLOADER = 3
+PROFUNDIDAD_TOPLOADER = 5
+
+doc = App.newDocument('PhotoBoX')
+objetos = []
+
+
+def caja(ancho, fondo, alto, x=0, y=0, z=0):
+    return Part.makeBox(ancho, fondo, alto, Vector(x, y, z))
+
+
+def agregar(nombre, etiqueta, forma, posicion):
+    forma = forma.removeSplitter()
+    if forma.isNull() or not forma.isValid():
+        raise RuntimeError('Geometría no válida: ' + etiqueta)
+    if len(forma.Solids) != 1:
+        raise RuntimeError('La pieza no forma un único sólido: ' + etiqueta)
+    obj = doc.addObject('Part::Feature', nombre)
+    obj.Label = etiqueta
+    obj.Shape = forma
+    obj.Placement.Base = Vector(*posicion)
+    if App.GuiUp:
+        obj.ViewObject.ShapeColor = (0.92, 0.92, 0.92)
+        obj.ViewObject.DisplayMode = 'Shaded'
+        obj.ViewObject.Deviation = 0.1
+    objetos.append(obj)
+    return obj
+
+
+def buscar_fuente():
+    candidatas = [
+        FUENTE_PERSONALIZADA,
+        'C:/Windows/Fonts/arial.ttf',
+        'C:/Windows/Fonts/calibri.ttf',
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+        '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+        '/System/Library/Fonts/Supplemental/Arial.ttf',
+        '/Library/Fonts/Arial.ttf'
+    ]
+    for ruta in candidatas:
+        if ruta and os.path.isfile(ruta):
+            return ruta
+    raise RuntimeError('Indica una fuente TTF en FUENTE_PERSONALIZADA.')
+
+
+# BASE CON TRES RANURAS
+MARGEN = 2
+ANCHO_BASE = ANCHO_INTERIOR + 2 * ESPESOR_PANEL + 2 * MARGEN
+FONDO_BASE = FONDO_INTERIOR + ESPESOR_PANEL + 2 * MARGEN
+x_lateral_izquierdo = MARGEN
+x_interior = MARGEN + ESPESOR_PANEL
+x_lateral_derecho = x_interior + ANCHO_INTERIOR
+y_frontal = MARGEN
+y_trasera = y_frontal + FONDO_INTERIOR
+LARGO_LATERAL = FONDO_INTERIOR - 0.5
+ancho_ranura = ESPESOR_PANEL + HOLGURA_RANURA
+z_ranura = ESPESOR_BASE - PROFUNDIDAD_RANURA
+base = caja(ANCHO_BASE, FONDO_BASE, ESPESOR_BASE)
+for x_lateral in (x_lateral_izquierdo, x_lateral_derecho):
+    ranura = caja(
+        ancho_ranura, LARGO_LATERAL + HOLGURA_RANURA,
+        PROFUNDIDAD_RANURA + 1,
+        x_lateral - HOLGURA_RANURA / 2,
+        y_frontal - HOLGURA_RANURA / 2, z_ranura
+    )
+    base = base.cut(ranura)
+base = base.cut(caja(
+    ANCHO_INTERIOR + HOLGURA_RANURA, ancho_ranura,
+    PROFUNDIDAD_RANURA + 1,
+    x_interior - HOLGURA_RANURA / 2,
+    y_trasera - HOLGURA_RANURA / 2, z_ranura
+))
+agregar('Base', '01 - Base con ranuras', base, (0, 0, 0))
+
+# PANELES TUMBADOS: los 3 mm inferiores entran en las ranuras.
+alto_total_panel = ALTO_PANELES + PROFUNDIDAD_RANURA
+agregar('LateralIzquierdo', '02 - Lateral izquierdo',
+        caja(LARGO_LATERAL, alto_total_panel, ESPESOR_PANEL), (250, 0, 0))
+agregar('LateralDerecho', '03 - Lateral derecho',
+        caja(LARGO_LATERAL, alto_total_panel, ESPESOR_PANEL), (500, 0, 0))
+agregar('Trasera', '04 - Pared trasera',
+        caja(ANCHO_INTERIOR, alto_total_panel, ESPESOR_PANEL), (0, 250, 0))
+
+# SOPORTE EXTRAÍBLE PARA TOPLOADER
+soporte = caja(ANCHO_SOPORTE, FONDO_SOPORTE, ALTO_SOPORTE)
+soporte = soporte.cut(caja(
+    ANCHO_RANURA_TOPLOADER, GROSOR_RANURA_TOPLOADER,
+    PROFUNDIDAD_TOPLOADER + 1,
+    (ANCHO_SOPORTE - ANCHO_RANURA_TOPLOADER) / 2,
+    (FONDO_SOPORTE - GROSOR_RANURA_TOPLOADER) / 2,
+    ALTO_SOPORTE - PROFUNDIDAD_TOPLOADER
+))
+agregar('SoporteToploader', '05 - Soporte para toploader', soporte, (250, 250, 0))
+
+# CAJA PLANA DE ALMACENAMIENTO
+ANCHO_INTERIOR_CAJA = max(ANCHO_BASE, ANCHO_INTERIOR, LARGO_LATERAL) + HOLGURA_ALMACENAJE
+FONDO_INTERIOR_CAJA = max(FONDO_BASE, alto_total_panel) + HOLGURA_ALMACENAJE
+ANCHO_EXTERIOR_CAJA = ANCHO_INTERIOR_CAJA + 2 * PARED_CAJA
+FONDO_EXTERIOR_CAJA = FONDO_INTERIOR_CAJA + 2 * PARED_CAJA
+almacenaje = caja(ANCHO_EXTERIOR_CAJA, FONDO_EXTERIOR_CAJA, ALTO_CAJA)
+almacenaje = almacenaje.cut(caja(
+    ANCHO_INTERIOR_CAJA, FONDO_INTERIOR_CAJA, ALTO_CAJA,
+    PARED_CAJA, PARED_CAJA, SUELO_CAJA
+))
+agregar('CajaAlmacenaje', '06 - Caja de almacenamiento', almacenaje, (500, 250, 0))
+
+# TAPA SOBREPUESTA: cara exterior hacia arriba.
+ancho_hueco_tapa = ANCHO_EXTERIOR_CAJA + HOLGURA_TAPA
+fondo_hueco_tapa = FONDO_EXTERIOR_CAJA + HOLGURA_TAPA
+ancho_tapa = ancho_hueco_tapa + 2 * PARED_CAJA
+fondo_tapa = fondo_hueco_tapa + 2 * PARED_CAJA
+alto_tapa = FALDA_TAPA + ESPESOR_TAPA
+if not 0 < PROFUNDIDAD_GRABADO < ESPESOR_TAPA:
+    raise RuntimeError('El grabado debe ser menor que el espesor de la tapa.')
+tapa = caja(ancho_tapa, fondo_tapa, alto_tapa)
+tapa = tapa.cut(caja(
+    ancho_hueco_tapa, fondo_hueco_tapa, FALDA_TAPA + 1,
+    PARED_CAJA, PARED_CAJA, -1
+))
+
+# GRABADO CENTRADO EN LA CARA EXTERIOR
+texto_temporal = Draft.makeShapeString(
+    String=TEXTO_TAPA, FontFile=buscar_fuente(), Size=10, Tracking=0
+)
+doc.recompute()
+forma_texto = texto_temporal.Shape.copy()
+if forma_texto.isNull() or not forma_texto.Faces:
+    raise RuntimeError('No se ha podido crear el texto con esa fuente.')
+ancho_original = forma_texto.BoundBox.XLength
+if ancho_original <= 0:
+    raise RuntimeError('El texto no tiene un ancho válido.')
+escala = ANCHO_TEXTO / ancho_original
+matriz = App.Matrix()
+matriz.A11 = escala
+matriz.A22 = escala
+matriz.A33 = escala
+forma_texto = forma_texto.transformGeometry(matriz)
+limites = forma_texto.BoundBox
+if limites.XLength > ancho_tapa - 20 or limites.YLength > fondo_tapa - 20:
+    raise RuntimeError('El texto es demasiado grande para la tapa.')
+forma_texto.translate(Vector(
+    (ancho_tapa - limites.XLength) / 2 - limites.XMin,
+    (fondo_tapa - limites.YLength) / 2 - limites.YMin,
+    alto_tapa - PROFUNDIDAD_GRABADO - limites.ZMin
+))
+tapa = tapa.cut(forma_texto.extrude(Vector(0, 0, PROFUNDIDAD_GRABADO + 1)))
+doc.removeObject(texto_temporal.Name)
+agregar('Tapa', '07 - Tapa grabada PhotoBoX', tapa, (0, 500, 0))
+
+# COMPROBACIONES DE TAMAÑO Y ALMACENAMIENTO
+for obj in objetos:
+    limites = obj.Shape.BoundBox
+    if limites.XLength > 256 or limites.YLength > 256:
+        raise RuntimeError('La pieza supera la cama de impresión: ' + obj.Label)
+altura_apilada = ESPESOR_BASE + 3 * ESPESOR_PANEL + ALTO_SOPORTE
+if altura_apilada > ALTO_CAJA - SUELO_CAJA:
+    raise RuntimeError('Las piezas apiladas no caben en la caja.')
+
+doc.recompute()
+if App.GuiUp:
+    import FreeCADGui as Gui
+    Gui.Selection.clearSelection()
+    Gui.activeDocument().activeView().viewAxonometric()
+    Gui.activeDocument().activeView().fitAll()
+
+App.Console.PrintMessage(
+    '\nPhotoBoX creada con siete piezas.\n'
+    'Exporta cada pieza individualmente como STL.\n'
+    'Paneles tumbados para imprimir.\n'
+    'Gira la tapa 180 grados en el laminador para apoyar\n'
+    'su cara exterior grabada sobre la cama.\n'
+    'La tapa es sobrepuesta, sin cierre de bloqueo.\n'
+)

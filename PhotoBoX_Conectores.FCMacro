@@ -1,0 +1,100 @@
+import FreeCAD as App
+import Part
+from FreeCAD import Vector
+
+# MEDIDAS EN MILÍMETROS
+ESPESOR_PANEL = 3
+HOLGURA = 0.4
+LARGO_BRAZOS = 25
+PROFUNDIDAD_CANAL = 12
+PARED = 2.5
+TECHO = 2.5
+ALTURA_TOTAL = PROFUNDIDAD_CANAL + TECHO
+
+doc = App.newDocument("ConectoresPhotoBoX")
+
+
+def crear_conector(espejado=False):
+    margen = HOLGURA / 2
+
+    def bloque(x1, y1, x2, y2, z, altura):
+        if espejado:
+            x1, x2 = -x2, -x1
+        return Part.makeBox(
+            x2 - x1, y2 - y1, altura, Vector(x1, y1, z)
+        )
+
+    izquierda = -ESPESOR_PANEL - margen - PARED
+    derecha = LARGO_BRAZOS + PARED
+    abajo = -LARGO_BRAZOS - PARED
+    arriba = ESPESOR_PANEL + margen + PARED
+
+    # Dos brazos exteriores formando una escuadra.
+    brazo_horizontal = bloque(
+        izquierda, -margen - PARED, derecha, arriba, 0, ALTURA_TOTAL
+    )
+    brazo_vertical = bloque(
+        izquierda, abajo, margen + PARED, arriba, 0, ALTURA_TOTAL
+    )
+    exterior = brazo_horizontal.fuse(brazo_vertical)
+
+    # Dos canales comunicados en la esquina.
+    canal_horizontal = bloque(
+        -ESPESOR_PANEL - margen, -margen,
+        derecha + 1, ESPESOR_PANEL + margen,
+        TECHO, PROFUNDIDAD_CANAL + 1
+    )
+    canal_vertical = bloque(
+        -ESPESOR_PANEL - margen, abajo - 1,
+        margen, ESPESOR_PANEL + margen,
+        TECHO, PROFUNDIDAD_CANAL + 1
+    )
+    canales = canal_horizontal.fuse(canal_vertical)
+    pieza = exterior.cut(canales).removeSplitter()
+
+    if pieza.isNull() or not pieza.isValid():
+        raise RuntimeError("Geometría no válida.")
+    if len(pieza.Solids) != 1:
+        raise RuntimeError("Cada conector debe formar una única pieza.")
+
+    # Apoyar la cara cerrada sobre el plano de impresión.
+    limites = pieza.BoundBox
+    pieza.translate(Vector(
+        -limites.XMin, -limites.YMin, -limites.ZMin
+    ))
+    return pieza
+
+
+# PIEZA 1: ESQUINA TRASERA IZQUIERDA
+izquierdo = doc.addObject("Part::Feature", "ConectorIzquierdo")
+izquierdo.Label = "Conector esquina trasera izquierda"
+izquierdo.Shape = crear_conector(espejado=False)
+
+# PIEZA 2: ESQUINA TRASERA DERECHA
+derecho = doc.addObject("Part::Feature", "ConectorDerecho")
+derecho.Label = "Conector esquina trasera derecha"
+derecho.Shape = crear_conector(espejado=True)
+
+# Separación visual: no se unen entre sí.
+derecho.Placement.Base = Vector(50, 0, 0)
+
+doc.recompute()
+
+if App.GuiUp:
+    import FreeCADGui as Gui
+    for obj in [izquierdo, derecho]:
+        obj.ViewObject.ShapeColor = (0.1, 0.4, 0.85)
+        obj.ViewObject.DisplayMode = "Shaded"
+    Gui.Selection.clearSelection()
+    Gui.activeDocument().activeView().viewAxonometric()
+    Gui.activeDocument().activeView().fitAll()
+
+App.Console.PrintMessage(
+    "\nCreadas dos piezas independientes:\n"
+    "1. Conector esquina trasera izquierda.\n"
+    "2. Conector esquina trasera derecha.\n"
+    "Canales de 3,4 mm para paneles de 3 mm.\n"
+    "Exporta cada objeto por separado como STL.\n"
+    "Imprime con la cara cerrada apoyada en la cama.\n"
+    "Para montar, gira los conectores y encájalos desde arriba.\n"
+)

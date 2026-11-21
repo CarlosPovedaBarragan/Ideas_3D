@@ -1,0 +1,58 @@
+# -*- coding: utf-8 -*-
+# Ideas3D / Megacracks 2026-27 - separadores de equipos parametrizados
+# Abrir y ejecutar desde FreeCAD (Macro > Macros...).
+# Dimensiones SOLO PROVISIONALES; comprobar interior de caja antes de fabricar juego completo.
+import FreeCAD as App
+import Part
+import Mesh
+import os
+
+# ------ PARAMETROS (mm) ------
+ANCHO_CUERPO = 92.0
+ALTO_CUERPO = 60.0
+ANCHO_PESTANA = 50.0
+ALTO_PESTANA = 8.0
+ESPESOR = 1.2
+DESPLAZAMIENTO_PESTANA = 42.0  # desde borde izquierdo; debe caber en ANCHO_CUERPO
+# Perfil plano en forma de rectangulo con pestaña superior; no se añade labio perpendicular.
+# Una pestaña sobresaliente puede impedir cerrar la caja: comprobar altura útil.
+EQUIPOS = ["REAL MADRID", "FC BARCELONA", "ATLETICO", "ATHLETIC", "BETIS", "VALENCIA", "SEVILLA"]
+GENERAR_TODOS = False  # True para generar un separador por cada equipo
+EXPORTAR_STL = True
+RUTA_EXPORTACION = os.path.join(os.path.expanduser('~'), 'Ideas3D_Megacracks_STL')
+
+assert 0 < ANCHO_PESTANA <= ANCHO_CUERPO
+assert 0 <= DESPLAZAMIENTO_PESTANA <= ANCHO_CUERPO - ANCHO_PESTANA
+assert min(ANCHO_CUERPO, ALTO_CUERPO, ALTO_PESTANA, ESPESOR) > 0
+
+try:
+    os.makedirs(RUTA_EXPORTACION, exist_ok=True)
+except Exception:
+    EXPORTAR_STL = False
+
+def pieza():
+    x0, x1 = DESPLAZAMIENTO_PESTANA, DESPLAZAMIENTO_PESTANA + ANCHO_PESTANA
+    w, h, t = ANCHO_CUERPO, ALTO_CUERPO, ALTO_PESTANA
+    pts = [(0,0),(w,0),(w,h),(x1,h),(x1,h+t),(x0,h+t),(x0,h),(0,h)]
+    vec = [App.Vector(x,y,0) for x,y in pts]
+    wire = Part.makePolygon(vec + [vec[0]])
+    shape = Part.Face(wire).extrude(App.Vector(0,0,ESPESOR))
+    return shape
+
+nombres = EQUIPOS if GENERAR_TODOS else [EQUIPOS[0]]
+doc = App.newDocument('Ideas3D_Separadores_Megacracks_V2')
+for nombre in nombres:
+    objeto = doc.addObject('PartDesign::Feature', 'Separador')
+    objeto.Label = 'Separador - ' + nombre
+    objeto.Shape = pieza()
+    objeto.addProperty('App::PropertyString','Equipo','Etiquetado')
+    objeto.Equipo = nombre
+    objeto.addProperty('App::PropertyString','Nota','Etiquetado')
+    objeto.Nota = 'Nombre pendiente de grabar o colocar como pegatina; STL es geometria sin texto'
+    if EXPORTAR_STL:
+        archivo = 'separador_' + nombre.lower().replace(' ','_') + '.stl'
+        Mesh.export([objeto],os.path.join(RUTA_EXPORTACION,archivo))
+doc.recompute()
+Gui.activeDocument().activeView().viewAxonometric()
+Gui.activeDocument().activeView().fitAll()
+App.Console.PrintMessage('Separadores listos. Revise medidas antes de imprimir.\n')
